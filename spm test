@@ -1,0 +1,1124 @@
+from time import sleep
+from typing import List
+import pandas_datareader as pdr
+import numpy as np
+import pandas as pd
+import copy
+import datetime
+from numpy.core.numeric import NaN, outer
+import datetime as dt
+from openpyxl import Workbook
+from openpyxl.drawing.image import Image
+from pandas import ExcelWriter
+import plotly.graph_objects as go
+import plotly.express as px
+import xlsxwriter
+from io import BytesIO
+
+def CAGR(DF):
+    df = DF.copy()
+    df["cum_return"] = (1+ df["ret"]).cumprod()
+    n = len(df) /(252*75)
+    CAGR = (df["cum_return"].tolist()[-1]) ** (1/n) -1
+    return CAGR
+
+def volatility(DF):
+    df = DF.copy()
+    vol = df["ret"].std() * np.sqrt(252)
+    return vol
+
+def sharpe(DF,rf):
+    df =DF.copy()
+    sr =(CAGR(DF) -rf)/volatility(DF)
+    return sr
+
+def sortino(DF,rf):
+    df = DF.copy()
+    df["daily_return"] = df["ret"].pct_change()
+    neg_vol =df[df["daily_return"]<0]["daily_return"].std() * np.sqrt(252)
+    sr = (CAGR(DF) -rf)/neg_vol
+    return sr
+
+def max_dd(DF):
+    df = DF.copy()
+    df["cum_return"] = df["units"].cumsum()
+    df["cum_roll_max"] = df["cum_return"].cummax()
+    df["drawdown"] = df["cum_roll_max"] -  df["cum_return"]
+    df["drawdown_pct"] =  df["drawdown"] / df["cum_roll_max"]
+    writer = pd.ExcelWriter('python_Export.xlsx', engine='xlsxwriter')
+    df.to_excel(writer, sheet_name='Sheet1')
+    writer.save()
+    max_DD =  df["drawdown"].max()
+    return max_DD
+
+def calmar(DF):
+    df = DF.copy()
+    clmr = CAGR(df) / max_dd(df)
+    return clmr
+
+def ATR(DF,n):
+    df = DF.copy()
+    df['H-L'] = abs(df['High'] - df['Low'])
+    df['H-PC'] = abs(df['High']-df['Adj Close'].shift(1))
+    df['L-PC'] = abs(df['Low']-df['Adj Close'].shift(1))
+    df['TR'] = df[['H-L','H-PC','L-PC']].max(axis =1,skipna =False)
+    df['ATR'] = df['TR'].rolling(n).mean()
+    df2 = df.drop(['H-L','H-PC','L-PC'],axis =1)
+    return df2['ATR']
+def MACD(DF,a,b,c):
+    """function to calculate MACD
+       typical values a(fast moving average) = 12;
+                      b(slow moving average) =26;
+                      c(signal line ma window) =9"""
+    df = DF.copy()
+    df["MA_Fast"]=df["Close"].ewm(span=a,min_periods=a).mean()
+    df["MA_Slow"]=df["Close"].ewm(span=b,min_periods=b).mean()
+    df["MACD"]=df["MA_Fast"]-df["MA_Slow"]
+    df["Signal"]=df["MACD"].ewm(span=c,min_periods=c).mean()
+    df.loc[df["MACD"] >= df["Signal"], 'Trend'] = 'bullish'
+    df.loc[df["MACD"] < df["Signal"], 'Trend'] = 'bearish'
+    df.dropna(inplace=True)
+    df.reset_index(inplace=True)
+    writer = pd.ExcelWriter('MACD.xlsx', engine='xlsxwriter')
+    df.to_excel(writer, sheet_name='Sheet1')
+    writer.save()
+    return df
+
+input="find"
+ticker="^NSEI"
+Period="1y"
+Interval="5m"
+cust_Date="Datetime"
+data = pd.read_csv("/home/harshb36/NIFTY-I_AFL_11-20 (1).csv",
+            parse_dates={'DateTime': ['Date', 'Time']},
+            usecols=['Date', 'Time', 'Open', 'High', 'Low', 'Close','Volume','Datee'],
+            na_values=['nan'])
+
+d = {'Open':'first', 'High':'max', 'Low':'min', 'Close': 'last','Volume':'sum','Datee':'first'}
+
+data['DateTime'] = pd.to_datetime(data['DateTime'])
+
+data = data.resample('5T', on='DateTime').agg(d)
+
+data.dropna(inplace=True)
+
+data.reset_index(inplace=True)
+if(input=="find"):
+    list =[0,1,2,0]
+    ttlist=[]
+    TempSPH =[]
+    TempSPL =[]
+    SHTempDate = []
+    SLTempDate = []
+    SPL=[]
+    SPH=[]
+    SPHList=[]
+    SPLList=[]
+    LPH=[]
+    LPL=[]
+    LPHList =[]
+    LPLList =[]
+    SPHDate =[]
+    SPLDate =[]
+    LPHDate =[]
+    LPLDate =[]
+    count =0
+    maxxcount=5
+    #data = yf.download(ticker,period=Period)
+
+
+    #data.reset_index(inplace=True)
+    DF =data.copy()
+    #datee = data[cust_Date].to_numpy()
+    #data["Date"] = np.array(datee)
+    #ohlc = data.loc[:, ['Date', 'Open', 'High', 'Low', 'Close']]
+
+    print(DF)
+    TempSPH.append(DF["High"][0])
+    SHTempDate.append(0)
+    #ohlc['Date'] = pd.to_datetime(ohlc['Date'])
+    #ohlc['Date'] = ohlc['Date'].apply(mpl_dates.date2num)
+    #ohlc = ohlc.astype(float)
+
+    def tempSPH(List):
+        count =List[3]
+        df = DF.copy()
+        i= List[0]
+        j=List[1]
+        k = List[2]
+        if (k  < len(DF)) :
+            if(df["Close"][i] >= df["Close"][j] and df["Close"][i] >= df["Close"][k] ):
+                if(df["Low"][i] >= df["Low"][j] and df["Low"][i] >= df["Low"][k]):
+                    a=SLTempDate[len(SLTempDate)-1]
+                    Higherr=df["High"][a]
+                    while(a<=k):
+                        if(Higherr<=df["High"][a]):
+                            Higherr=df["High"][a]
+                            d=a
+                            a=a+1
+                        else:
+                            a=a+1
+                    TempSPH.append(Higherr)
+                    SHTempDate.append(d)
+                    i=k
+                    j=i+1
+                    k=j+1
+                    count=0
+                    List=[i,j,k,count]
+                    return List
+                elif(df["Low"][i] >= df["Low"][j] and df["Low"][i] <= df["Low"][k]):
+                    k=k+1
+                    count = count +1
+                    List =[i,j,k,count]
+                    if(count < maxxcount):
+                        return tempSPH(List)
+                    else:
+                        count=0
+                        i =i+1
+                        j=i+1
+                        k =j+1
+                        List = [i,j,k,count]
+                        return tempSPH(List)
+                elif(df["Low"][i] <= df["Low"][j] and df["Low"][i] >= df["Low"][k]):
+                    j=k
+                    k=j+1
+                    count = count +1
+                    List =[i,j,k,count]
+
+                    if(count < maxxcount):
+                        return tempSPH(List)
+                    else:
+                        count=0
+                        i =i+1
+                        j=i+1
+                        k =j+1
+                        List = [i,j,k,count]
+                        return tempSPH(List)
+                elif(df["Low"][i] <= df["Low"][j] and df["Low"][i] <= df["Low"][k]):
+                    j=k+1
+                    k=j+1
+                    count = count +1
+                    List = [i,j,k,count]
+                    if(count < maxxcount):
+                        return tempSPH(List)
+                    else:
+                        count=0
+                        i =i+1
+                        j=i+1
+                        k =j+1
+                        List = [i,j,k,count]
+                        return tempSPH(List)
+            elif(df["Close"][i] >= df["Close"][j] and df["Close"][i] <= df["Close"][k]):
+                k = k+1
+                count = count+1
+                List = [i,j,k,count]
+                if(count < maxxcount):
+                    return tempSPH(List)
+                else:
+                    count =0
+                    i=i+1
+                    j=i+1
+                    k=j+1
+                    List = [i,j,k,count]
+                    return tempSPH(List)
+            elif(df["Close"][i] <= df["Close"][j] and df["Close"][i] >= df["Close"][k]):
+                j=k
+                k=j+1
+                count = count+1
+                List = [i,j,k,count]
+                if(count < maxxcount):
+                    return tempSPH(List)
+                else:
+                    count =0
+                    i=i+1
+                    j=i+1
+                    k=j+1
+                    List = [i,j,k,count]
+                    return tempSPH(List)
+            elif(df["Close"][i] <= df["Close"][j] and df["Close"][i] <= df["Close"][k]):
+                j=k+1
+                k=j+1
+                count = count+1
+                List = [i,j,k,count]
+                if(count < maxxcount):
+                    return tempSPH(List)
+                else:
+                    count =0
+                    i=i+1
+                    j=i+1
+                    k=j+1
+                    List =[i,j,k,count]
+                    return tempSPH(List)
+            else:
+                    count =0
+                    i=i+1
+                    j=i+1
+                    k=j+1
+                    List =[i,j,k,count]
+                    return tempSPH(List)
+        return List
+
+    def tempSPL(List):
+        df = DF.copy()
+        count =List[3]
+        i= List[0]
+        j=List[1]
+        k=List[2]
+        if(k < len(DF)):
+            if(df["Close"][i] <= df["Close"][j] and df["Close"][i] <= df["Close"][k] ):
+                if(df["High"][i] <= df["High"][j] and df["High"][i] <= df["High"][k]):
+                    a=SHTempDate[len(SHTempDate)-1]
+                    Lowerr=df["Low"][a]
+                    while(a<=k):
+                        if(Lowerr>=df["Low"][a]):
+                            Lowerr=df["Low"][a]
+                            d=a
+                            a=a+1
+                        else:
+                            a=a+1
+                    TempSPL.append(Lowerr)
+                    SLTempDate.append(d)
+                    i=k
+                    j=i+1
+                    k=j+1
+                    count=0
+                    List=[i,j,k,count]
+                    return List
+                elif(df["High"][i] <= df["High"][j] and df["High"][i] >= df["High"][k]):
+                    k=k+1
+                    count = count+1
+                    List = [i,j,k,count]
+                    if(count < maxxcount):
+                        return tempSPL(List)
+                    else:
+                        count =0
+                        i=i+1
+                        j=i+1
+                        k=j+1
+                        List = [i,j,k,count]
+                        return tempSPL(List)
+                elif(df["High"][i] >= df["High"][j] and df["High"][i] <= df["High"][k]):
+                    j=k
+                    k=j+1
+                    count=count+1
+                    List = [i,j,k,count]
+                    if(count < maxxcount):
+                        return tempSPL(List)
+                    else:
+                        count =0
+                        i=i+1
+                        j=i+1
+                        k=j+1
+                        List = [i,j,k,count]
+                        return tempSPL(List)
+                elif(df["High"][i] >= df["High"][j] and df["High"][i] >= df["High"][k]):
+                    j=k+1
+                    k=j+1
+                    count=count+1
+                    List = [i,j,k,count]
+                    if(count < maxxcount):
+                        return tempSPL(List)
+                    else:
+                        count =0
+                        i=i+1
+                        j=i+1
+                        k=j+1
+                        List = [i,j,k,count]
+                        return tempSPL(List)
+            elif (df["Close"][i] <= df["Close"][j] and df["Close"][i] >= df["Close"][k] ):
+                k=k+1
+                count = count+1
+                List = [i,j,k,count]
+                if(count < maxxcount):
+                    return tempSPL(List)
+                else:
+                    i =i+1
+                    j=i+1
+                    k=j+1
+                    count = 0
+                    List = [i,j,k,count]
+                    return tempSPL(List)
+            elif (df["Close"][i] >= df["Close"][j] and df["Close"][i] <= df["Close"][k] ):
+                j=k
+                k=j+1
+                count = count+1
+                List = [i,j,k,count]
+                if(count < maxxcount):
+                    return tempSPL(List)
+                else:
+                    i =i+1
+                    j=i+1
+                    k=j+1
+                    count = 0
+                    List = [i,j,k,count]
+                    return tempSPL(List)
+            else:
+                count = 0
+                i=i+1
+                j=i+1
+                k=j+1
+                List = [i,j,k,count]
+                return tempSPL(List)
+        else:
+            return List
+
+    q=list[2]
+    bbList=list
+    while(q<len(DF)-1):
+        aaList =tempSPL(bbList)
+        bbList =tempSPH(aaList)
+        q=bbList[2]
+    print("temp done")
+    x=0
+    SPH.append(DF["High"][SHTempDate[0]])
+    SPHList.append(SHTempDate[0])
+    def perSPL(X):
+        x=X
+        if(x < len(SHTempDate)-1):
+            y = SPHList[x]
+            lowest = DF["Low"][y]
+            while(y <= SHTempDate[x+1]):
+                if(DF["Low"][y] is not NaN):
+                    if(DF["Low"][y]<= lowest):
+                        lowest = DF["Low"][y]
+                        z = y
+                        y=y+1
+                    else:
+                        y=y+1
+
+            SPL.append(lowest)
+            SPLList.append(z)
+            x=x
+            return x
+        x=x+1
+        return x
+    def perSPH(X):
+        x=X
+        if(x < len(SLTempDate)-1):
+            y = SPLList[x]
+            Higest = DF["High"][y]
+            while(y <= SLTempDate[x+1]):
+                if(DF["High"][y] is not NaN):
+                    if(DF["High"][y]>= Higest):
+                        Higest = DF["High"][y]
+                        z = y
+                        y=y+1
+                    else:
+                        y=y+1
+
+            SPH.append(Higest)
+            SPHList.append(z)
+            x=x+1
+            return x
+        x=x+1
+        return x
+    x=0
+    while(x < len(SLTempDate)-1 or x < len(SHTempDate)-1):
+        x=perSPL(x)
+        x=perSPH(x)
+
+
+    if (SHTempDate[len(SHTempDate)-1] < SLTempDate[len(SLTempDate)-1]):
+        SPL.append(TempSPL[len(SLTempDate)-1])
+        SPLList.append(SLTempDate[len(SLTempDate)-1])
+    elif(SHTempDate[len(SHTempDate)-1] > SLTempDate[len(SLTempDate)-1]):
+        SPH.append(TempSPH[len(SHTempDate)-1])
+        SPHList.append(SHTempDate[len(SHTempDate)-1])
+
+
+    print("SPH&SPL done")
+
+    LPH.append(SPH[0])
+    LPHList.append(SPHList[0])
+    ttlist=[0]
+    def perLPL(X):
+        x=X
+        temp ="no"
+        while(x<len(SPHList)-1):
+            if(SPH[x] <SPH[x+1]):
+                temp=SPHList[x+1]
+                next=SPHList[x]
+                break
+            else:
+                x=x+1
+        if(temp =="no"):
+            x=x+1
+        if(x<len(SPHList)-1):
+            i=LPHList[len(LPHList)-1]
+            lowest=DF["Low"][i]
+            b=i
+            while(i<=temp):
+                if(lowest > DF["Low"][i]):
+                    lowest=DF["Low"][i]
+                    b=i
+                else:
+                    i=i+1
+            LPL.append(lowest)
+            LPLList.append(b)
+
+            j=0
+            while(j < len(SPLList)-1):
+                if(SPLList[j]>next):
+                    ttlist.append(j)
+                    break
+                else:
+                    j=j+1
+
+            return j
+        x=x+1
+        return x
+
+    def perLPH(X):
+        x=X
+        temp="no"
+        while(x<len(SPLList)-1):
+            if(SPL[x] >SPL[x+1]):
+                temp=SPLList[x+1]
+                next=SPLList[x]
+                break
+            else:
+                x=x+1
+        if(temp =="no"):
+            x=x+1
+        if(x<len(SPLList)-1):
+            i=LPLList[len(LPLList)-1]
+
+            Highest=DF["High"][i]
+            b=i
+            while(i<=temp):
+                if(Highest < DF["High"][i]):
+                    Highest=DF["High"][i]
+                    b=i
+                else:
+                    i=i+1
+
+            LPH.append(Highest)
+            LPHList.append(b)
+            j=0
+            while(j < len(SPHList)-1):
+                if(SPHList[j]>next):
+                    ttlist.append(j)
+                    break
+                else:
+                    j=j+1
+
+            return j
+        x=x+1
+        return x
+    a=ttlist[len(ttlist)-1]
+    b=ttlist[len(ttlist)-1]
+    while(b <len(SPHList)-1 and a < len(SPLList)-1):
+        b=perLPL(a)
+        a=perLPH(b)
+
+    print("LPH&LPL Done")
+
+    for i in SPHList:
+        SPHDate.append(DF["DateTime"][i])
+    for i in SPLList:
+        SPLDate.append(DF["DateTime"][i])
+
+    for i in LPHList:
+        LPHDate.append(DF["DateTime"][i])
+    for i in LPLList:
+        LPLDate.append(DF["DateTime"][i])
+    SPLValue =[]
+    SPHValue =[]
+    LPLValue =[]
+    LPHValue =[]
+    i=0
+    while i < len(DF):
+        if i in SPHList:
+            SPHValue.append(SPH[int(SPHList.index(i))])
+        else:
+            SPHValue.append(NaN)
+        i=i+1
+    i=0
+    while i < len(DF):
+        if i in SPLList:
+            SPLValue.append(SPL[int(SPLList.index(i))])
+        else:
+            SPLValue.append(NaN)
+        i=i+1
+    i=0
+    while i < len(DF):
+        if i in LPHList:
+            LPHValue.append(LPH[int(LPHList.index(i))])
+        else:
+            LPHValue.append(NaN)
+        i=i+1
+    i=0
+    while i < len(DF):
+        if i in LPLList:
+            LPLValue.append(LPL[int(LPLList.index(i))])
+        else:
+            LPLValue.append(NaN)
+        i = i+1
+
+    DF["SPH"] = np.array(SPHValue)
+    DF["SPL"] = np.array(SPLValue)
+    DF["LPH"] = np.array(LPHValue)
+    DF["LPL"] = np.array(LPLValue)
+
+    DF.fillna(method='ffill', inplace=True)
+
+    #DF["roll_max_vol"] = DF["Volume"].rolling(20).max()
+    #print(data)
+    DF.dropna(inplace=True)
+
+
+DF =MACD(DF,12,26,9)
+ticker_signal = ""
+ticker_call = []
+ticker_return = []
+ticker_units = []
+win=0
+loose=0
+print(DF)
+print("Calculating returns for"  + ticker)
+crossover="Null"
+check_count=0
+check_Gap="Null"
+i=1
+ticker_return.append(0)
+ticker_units.append(0)
+ticker_call.append("no")
+DDTT=0
+trade=0
+stoploss=0.003
+maxtrade=2
+
+while( i < len(DF)):
+        if ticker_signal=="":
+            ticker_return.append(0)
+            ticker_units.append(0)
+            if(DDTT !=DF["Datee"][i]):
+                trade=0
+                if(DF["Open"][i] >DF["Close"][i-1]+50 ):
+                            check_Gap="Gap_up"
+                            previous_Date=DF["Datee"][i]
+                            previous_SPL=DF["SPL"][i-1]
+                            first_candle_High=DF["High"][i]
+                            first_candle_Low=DF["Low"][i]
+                            Special_case="No"
+                            if(DF["Open"][i] >DF["Close"][i]):
+                                Special_case="Yes"
+                elif(DF["Open"][i] <DF["Close"][i-1]-50):
+                            check_Gap="Gap_down"
+                            previous_Date=DF["Datee"][i]
+                            previous_SPH=DF["SPH"][i-1]
+                            first_candle_Low=DF["Low"][i]
+                            first_candle_High=DF["High"][i]
+                else:
+                    check_Gap="No_Gap"
+            if(trade<maxtrade):
+                if(trade==0):
+                    if(check_Gap=="Gap_up" and DF["High"][i] >first_candle_High ) :
+                        ticker_signal ="Buy"
+                        trade=trade+1
+                        DDTT=DF["Datee"][i]
+                        firstTrade="Buy"
+                        firstSPH=DF["SPH"][i-1]
+                        SL_SPL=DF["SPL"][i-1]
+                        #n = DF["High"][i] - DF["High"][i] * 0.003
+                        if(DF["Open"][i]<=first_candle_High):
+                            a=first_candle_High
+                            n = first_candle_High - first_candle_High * stoploss
+                            target = first_candle_High *1.05
+                            ticker_call.append("Buy" + str(a))
+                        else:
+                            a=DF["Open"][i]
+                            n=DF["Open"][i] - DF["Open"][i]*stoploss
+                            target = DF["Open"][i] *1.05
+                            ticker_call.append("Buy" + str(a))
+                    elif(check_Gap=="Gap_up" and (DF["Low"][i] < DF["LPL"][i-1] )): #and (DF["SPL"][i-1] < DF["LPH"][i-1])):# and (DF["Trend"][i-1]=="bearish"))  :
+                        ticker_signal ="Sell"
+                        trade=trade+1
+                        DDTT=DF["Datee"][i]
+                        firstTrade="Sell"
+                        firstSPL=DF["SPL"][i-1]
+                        SL_SPH=DF["SPH"][i-1]
+                        #n = DF["Low"][i] + DF["Low"][i] * 0.003
+                        if(DF["Open"][i]>=DF["SPL"][i-1]):
+                            a=DF["SPL"][i-1]
+                            n = DF["SPL"][i-1] + DF["SPL"][i-1] * stoploss
+                            target = DF["SPL"][i-1] *0.95
+                            ticker_call.append("Sell" +str(a))
+                        else:
+                            a=DF["Open"][i]
+                            n=DF["Open"][i] + DF["Open"][i]*stoploss
+                            target = DF["Open"][i] *0.95
+                            ticker_call.append("Sell" +str(a))
+                    elif(check_Gap=="Gap_up" and DF["SPL"][i-1] !=previous_SPL and DF["Low"][i] < DF["SPL"][i-1]): #and (DF["Trend"][i-1]=="bearish"):
+                        ticker_signal ="Sell"
+                        trade=trade+1
+                        DDTT=DF["Datee"][i]
+                        #n = DF["Low"][i] + DF["Low"][i] * 0.003
+                        firstTrade="Sell"
+                        firstSPL=DF["SPL"][i-1]
+                        SL_SPH=DF["SPH"][i-1]
+                        if(DF["Open"][i]>=DF["SPL"][i-1]):
+                            a=DF["SPL"][i-1]
+                            n = DF["SPL"][i-1] + DF["SPL"][i-1] * stoploss
+                            target = DF["SPL"][i-1] *0.95
+                            ticker_call.append("Sell" +str(a))
+                        else:
+                            a=DF["Open"][i]
+                            n=DF["Open"][i] + DF["Open"][i]*stoploss
+                            target = DF["Open"][i] *0.95
+                            ticker_call.append("Sell" +str(a))
+                    elif(check_Gap=="Gap_up" and Special_case=="Yes" and DF["Low"][i] <first_candle_Low):
+                        ticker_signal ="Sell"
+                        trade=trade+1
+                        DDTT=DF["Datee"][i]
+                        #n = DF["Low"][i] + DF["Low"][i] * 0.003
+                        firstTrade="Sell"
+                        firstSPL=DF["SPL"][i-1]
+                        SL_SPH=DF["SPH"][i-1]
+                        if(DF["Open"][i]>=first_candle_Low):
+                            a=first_candle_Low
+                            n = first_candle_Low + first_candle_Low * stoploss
+                            target = first_candle_Low *0.95
+                            ticker_call.append("Sell" +str(a))
+                        else:
+                            a=DF["Open"][i]
+                            n=DF["Open"][i] + DF["Open"][i]*stoploss
+                            target = DF["Open"][i] *0.95
+                            ticker_call.append("Sell" +str(a))
+                    elif(check_Gap=="Gap_down" and DF["Low"][i] < first_candle_Low):
+                        ticker_signal ="Sell"
+                        trade=trade+1
+                        DDTT=DF["Datee"][i]
+                        firstTrade="Sell"
+                        firstSPL=DF["SPL"][i-1]
+                        SL_SPH=DF["SPH"][i-1]
+                        #n = DF["Low"][i] + DF["Low"][i] * 0.003
+                        if(DF["Open"][i]>=first_candle_Low):
+                            a=first_candle_Low
+                            n = first_candle_Low + first_candle_Low * stoploss
+                            target = first_candle_Low *0.95
+                            ticker_call.append("Sell" +str(a))
+                        else:
+                            a=DF["Open"][i]
+                            n=DF["Open"][i] + DF["Open"][i]*stoploss
+                            target = DF["Open"][i] *0.95
+                            ticker_call.append("Sell" +str(a))
+                    elif(check_Gap=="Gap_down" and (DF["High"][i] > DF["LPH"][i-1])):# and (DF["SPH"][i-1] > DF["LPH"][i-1])):# and (DF["Trend"][i-1]=="bullish"))  :
+                        ticker_signal ="Buy"
+                        trade=trade+1
+                        DDTT=DF["Datee"][i]
+                        firstTrade="Buy"
+                        firstSPH=DF["SPH"][i-1]
+                        SL_SPL=DF["SPL"][i-1]
+                        #n = DF["High"][i] - DF["High"][i] * 0.003
+                        if(DF["Open"][i]<=DF["SPH"][i-1]):
+                            a=DF["SPH"][i-1]
+                            n = DF["SPH"][i-1] - DF["SPH"][i-1] * stoploss
+                            target = DF["SPH"][i-1] *1.05
+                            ticker_call.append("Buy" + str(a))
+                        else:
+                            a=DF["Open"][i]
+                            n=DF["Open"][i] - DF["Open"][i]*stoploss
+                            target = DF["Open"][i] *1.05
+                            ticker_call.append("Buy" + str(a))
+                    elif(check_Gap=="Gap_down" and DF["SPH"][i-1] != previous_SPH and DF["High"][i] >DF["SPH"][i-1]):# and (DF["Trend"][i-1]=="bullish"):
+                        ticker_signal ="Buy"
+                        trade=trade+1
+                        DDTT=DF["Datee"][i]
+                        firstTrade="Buy"
+                        firstSPH=DF["SPH"][i-1]
+                        SL_SPL=DF["SPL"][i-1]
+                        #n = DF["High"][i] - DF["High"][i] * 0.003
+                        if(DF["Open"][i]<=DF["SPH"][i-1]):
+                            a=DF["SPH"][i-1]
+                            n = DF["SPH"][i-1] - DF["SPH"][i-1] * stoploss
+                            target = DF["SPH"][i-1] *1.05
+                            ticker_call.append("Buy" + str(a))
+                        else:
+                            a=DF["Open"][i]
+                            n=DF["Open"][i] - DF["Open"][i]*stoploss
+                            target = DF["Open"][i] *1.05
+                            ticker_call.append("Buy" + str(a))
+                    elif(check_Gap=="No_Gap"):
+                        if ((DF["High"][i] > DF["LPH"][i-1])): #and (DF["SPH"][i-1] > DF["LPH"][i-1]) and (DF["Trend"][i-1]=="bullish")) :#or DF["High"][i] > (DF["SPH"][i] > DF["LPL"][i])or (DF["High"][i] > DF["LPH"][i-1]) )
+                            ticker_signal ="Buy"
+                            trade=trade+1
+                            DDTT=DF["Datee"][i]
+                            firstTrade="Buy"
+                            firstSPH=DF["SPH"][i-1]
+                            SL_SPL=DF["SPL"][i-1]
+                            #n = DF["High"][i] - DF["High"][i] * 0.003
+                            if(DF["Open"][i]<=DF["LPH"][i-1]):
+                                a=DF["LPH"][i-1]
+                                n = DF["LPH"][i-1] - DF["LPH"][i-1] * stoploss
+                                target = DF["LPH"][i-1] *1.05
+                                ticker_call.append("Buy" + str(a))
+                            else:
+                                a=DF["Open"][i]
+                                n=DF["Open"][i] - DF["Open"][i]*stoploss
+                                target = DF["Open"][i] *1.05
+                                ticker_call.append("Buy" + str(a))
+                        elif ((DF["Low"][i] < DF["LPL"][i-1])) :# and (DF["SPL"][i-1] < DF["LPH"][i-1]) and (DF["Trend"][i-1]=="bearish"))  : #or(DF["Low"][i] < DF["LPL"][i-1]))
+                            ticker_signal ="Sell"
+                            trade=trade+1
+                            DDTT=DF["Datee"][i]
+                            firstTrade="Sell"
+                            firstSPL=DF["SPL"][i-1]
+                            SL_SPH=DF["SPH"][i-1]
+                            #n = DF["Low"][i] + DF["Low"][i] * 0.003
+
+                            if(DF["Open"][i]>=DF["LPL"][i-1]):
+                                a=DF["LPL"][i-1]
+                                n = DF["LPL"][i-1] + DF["LPL"][i-1] * stoploss
+                                target = DF["LPL"][i-1] *0.95
+                                ticker_call.append("Sell" +str(a))
+                            else:
+                                a=DF["Open"][i]
+                                n=DF["Open"][i] + DF["Open"][i]*stoploss
+                                target = DF["Open"][i] *0.95
+                                ticker_call.append("Sell" +str(a))
+                        else:
+                            ticker_call.append("no call")
+                    else:
+                        ticker_call.append("no call")
+                elif(trade>0):
+                    if(firstTrade=="Buy"):
+                        if(DF["Low"][i]  < DF["LPH"][i-1]):
+                            crossover="LPHyes"
+                    if(firstTrade=="Sell"):
+                        if(DF["High"][i]  > DF["LPL"][i-1]):
+                            crossover="LPLyes"
+                    if(firstTrade=="Buy"):
+                        if( crossover=="LPHyes" and DF["High"][i] > DF["LPH"][i-1]):
+                            ticker_signal ="Buy"
+                            trade=trade+1
+                            DDTT=DF["Datee"][i]
+                            firstTrade="Buy"
+                            firstSPH=DF["SPH"][i-1]
+                            SL_SPL=DF["SPL"][i-1]
+                            #n = DF["High"][i] - DF["High"][i] * 0.003
+                            if(DF["Open"][i]<=DF["LPH"][i-1]):
+                                a=DF["LPH"][i-1]
+                                n = DF["LPH"][i-1] - DF["LPH"][i-1] * stoploss
+                                target = DF["LPH"][i-1] *1.05
+                                ticker_call.append("Buy" + str(a))
+                            else:
+                                a=DF["Open"][i]
+                                n=DF["Open"][i] - DF["Open"][i]*stoploss
+                                target = DF["Open"][i] *1.05
+                                ticker_call.append("Buy" + str(a))
+                        elif(DF["SPH"][i-1] != firstSPH and DF["High"][i] > DF["SPH"][i-1] and DF["SPH"][i-1]>DF["LPH"][i-1]):
+                            ticker_signal ="Buy"
+                            trade=trade+1
+                            DDTT=DF["Datee"][i]
+                            firstTrade="Buy"
+                            firstSPH=DF["SPH"][i-1]
+                            SL_SPL=DF["SPL"][i-1]
+                            #n = DF["High"][i] - DF["High"][i] * 0.003
+                            if(DF["Open"][i]<=DF["SPH"][i-1]):
+                                a=DF["SPH"][i-1]
+                                n = DF["SPH"][i-1] - DF["SPH"][i-1] * stoploss
+                                target = DF["SPH"][i-1] *1.05
+                                ticker_call.append("Buy" + str(a))
+                            else:
+                                a=DF["Open"][i]
+                                n=DF["Open"][i] - DF["Open"][i]*stoploss
+                                target = DF["Open"][i] *1.05
+                                ticker_call.append("Buy" + str(a))
+                        elif (DF["Low"][i] < DF["SPL"][i-1]  and DF["SPL"][i-1] < DF["LPH"][i-1]):# and (DF["Trend"][i-1]=="bearish") ):
+                            ticker_signal ="Sell"
+                            trade=trade+1
+                            DDTT=DF["Datee"][i]
+                            firstTrade="Sell"
+                            firstSPL=DF["SPL"][i-1]
+                            SL_SPH=DF["SPH"][i-1]
+                            #n = DF["Low"][i] + DF["Low"][i] * 0.003
+                            if(DF["Open"][i]>=DF["SPL"][i-1]):
+                                a=DF["SPL"][i-1]
+                                n = DF["SPL"][i-1] + DF["SPL"][i-1] * stoploss
+                                target = DF["SPL"][i-1] *0.95
+                                ticker_call.append("Sell" +str(a))
+                            else:
+                                a=DF["Open"][i]
+                                n=DF["Open"][i] + DF["Open"][i]*stoploss
+                                target = DF["Open"][i] *0.95
+                                ticker_call.append("Sell" +str(a))
+                        else:
+                            ticker_call.append("no call")
+                    elif(firstTrade=="Sell"):
+                        if( DF["High"][i] > DF["SPH"][i-1] and DF["SPH"][i-1]>DF["LPH"][i-1]): #and (DF["Trend"][i-1]=="bullish")):
+                            ticker_signal ="Buy"
+                            trade=trade+1
+                            DDTT=DF["Datee"][i]
+                            firstTrade="Buy"
+                            firstSPH=DF["SPH"][i-1]
+                            SL_SPL=DF["SPL"][i-1]
+                            #n = DF["High"][i] - DF["High"][i] * 0.003
+                            if(DF["Open"][i]<=DF["SPH"][i-1]):
+                                a=DF["SPH"][i-1]
+                                n = DF["SPH"][i-1] - DF["SPH"][i-1] * stoploss
+                                target = DF["SPH"][i-1] *1.05
+                                ticker_call.append("Buy" + str(a))
+                            else:
+                                a=DF["Open"][i]
+                                n=DF["Open"][i] - DF["Open"][i]*stoploss
+                                target = DF["Open"][i] *1.05
+                                ticker_call.append("Buy" + str(a))
+                        elif(crossover=="LPLyes" and DF["Low"][i] < DF["LPL"][i-1] ) :
+                            ticker_signal ="Sell"
+                            trade=trade+1
+                            DDTT=DF["Datee"][i]
+                            firstTrade="Sell"
+                            firstSPL=DF["SPL"][i-1]
+                            SL_SPH=DF["SPH"][i-1]
+                            #n = DF["Low"][i] + DF["Low"][i] * 0.003
+                            if(DF["Open"][i]>=DF["LPL"][i-1]):
+                                a=DF["LPL"][i-1]
+                                n = DF["LPL"][i-1] + DF["LPL"][i-1] * stoploss
+                                target = DF["LPL"][i-1] *0.95
+                                ticker_call.append("Sell" +str(a))
+                            else:
+                                a=DF["Open"][i]
+                                n=DF["Open"][i] + DF["Open"][i]*stoploss
+                                target = DF["Open"][i] *0.95
+                                ticker_call.append("Sell" +str(a))
+                        elif(DF["SPL"][i-1] != firstSPL and  DF["Low"][i] < DF["SPL"][i-1] and DF["SPL"][i-1]<DF["LPL"][i-1]):
+                            ticker_signal ="Sell"
+                            trade=trade+1
+                            DDTT=DF["Datee"][i]
+                            #n = DF["Low"][i] + DF["Low"][i] * 0.003
+                            firstTrade="Sell"
+                            firstSPL=DF["SPL"][i-1]
+                            SL_SPH=DF["SPH"][i-1]
+                            if(DF["Open"][i]>=DF["SPL"][i-1]):
+                                a=DF["SPL"][i-1]
+                                n = DF["SPL"][i-1] + DF["SPL"][i-1] * stoploss
+                                target = DF["SPL"][i-1] *0.95
+                                ticker_call.append("Sell" +str(a))
+                            else:
+                                a=DF["Open"][i]
+                                n=DF["Open"][i] + DF["Open"][i]*stoploss
+                                target = DF["Open"][i] *0.95
+                                ticker_call.append("Sell" +str(a))
+                        else:
+                            ticker_call.append("no call")
+
+            else:
+                ticker_call.append("no call")
+        elif ticker_signal=="Buy":
+            if(DF["Datee"][i] != DDTT):
+                ticker_signal=""
+                trade=0
+                win=win+1
+                ticker_return.append((DF["Close"][i]/DF["Close"][i-1])-1)
+                ticker_units.append(DF["Close"][i-1]-a)
+                ticker_call.append("Buy_Sell at" + str(DF["Close"][i-1]))
+            elif DF["Low"][i] <= n:
+                ticker_signal=""
+                if DF["Open"][i] >=n:
+                    ticker_return.append(((n)/DF["Close"][i-1])-1)
+                    ticker_units.append((n)-a)
+                    ticker_call.append("Buy_Sell at stoploss" + str(n))
+                    loose=loose+1
+                elif DF["Open"][i] >=DF["Low"][i-1]:
+                    ticker_return.append(((n)/DF["Close"][i-1])-1)
+                    ticker_units.append((n)-a)
+                    ticker_call.append("Buy_Sell at stoploss" + str(n))
+                    loose=loose+1
+                elif DF["Open"][i] < DF["Low"][i-1]:
+                    ticker_return.append(((n)/DF["Close"][i-1])-1)
+                    ticker_units.append((DF["Open"][i])-a)
+                    ticker_call.append("Buy_Sell at stoploss" + str(DF["Open"][i]))
+                    loose=loose+1
+                else:
+                    ticker_return.append(((n)/DF["Close"][i-1])-1)
+                    ticker_units.append((DF["Low"][i])-a)
+                    ticker_call.append("Buy_Sell at stoploss" + str(DF["Low"][i]))
+                    loose=loose+1
+
+
+            elif  DF["Low"][i] <= DF["SPL"][i-1]:
+                ticker_signal=""
+                if(DF["Open"][i] >= DF["SPL"][i-1]) :
+                    ticker_return.append(((DF["SPL"][i-1])/DF["Close"][i-1])-1)
+                    ticker_units.append((DF["SPL"][i-1])- a)
+                    ticker_call.append("Buy_Sell at" +str(DF["SPL"][i-1]))
+                    if(DF["SPL"][i-1] >=a):
+                        win=win+1
+                    else:
+                        loose=loose+1
+                elif (DF["Open"][i] < DF["SPL"][i-1]):
+                    ticker_return.append(((DF["Open"][i])/DF["Close"][i-1])-1)
+                    ticker_units.append((DF["Open"][i])- a)
+                    ticker_call.append("Buy_Sell at" + str(DF["Open"][i]))
+                    if(DF["Open"][i] >=a):
+                        win=win+1
+                    else:
+                        loose=loose+1
+                else:
+                    ticker_return.append(((n)/DF["Close"][i-1])-1)
+                    ticker_units.append((DF["Low"][i])-a)
+                    ticker_call.append("Buy_Sell at stoploss" + str(DF["Low"][i]))
+                    loose=loose+1
+            elif (DF["Low"][i] < DF["SPL"][i-1])  and (DF["SPL"][i-1]< DF["LPH"][i-1]):# or DF["Low"][i] < (DF["SPL"][i] < DF["LPH"][i]))or(DF["Low"][i] < DF["LPL"][i-1]):
+                ticker_signal ="Sell"
+                trade=trade+1
+                ticker_return.append((DF["Close"][i]/DF["Close"][i-1])-1)
+                ticker_units.append((DF["SPL"][i-1])-a)
+                ticker_call.append("Buy_Sell special at" + str(DF["SPL"][i-1]))
+                if(DF["SPL"][i-1] >=a):
+                            win=win+1
+                else:
+                            loose=loose+1
+
+            else:
+                ticker_return.append((DF["Close"][i]/DF["Close"][i-1])-1)
+                ticker_units.append(0)
+                ticker_call.append("remain")
+        elif ticker_signal=="Sell":
+            if(DF["Datee"][i] != DDTT):
+                ticker_signal=""
+                trade=0
+                win=win+1
+                ticker_return.append((DF["Close"][i-1]/DF["Close"][i-2])-1)
+                ticker_units.append(a-DF["Close"][i-1])
+                ticker_call.append("sell_buy"+str(DF["Close"][i-1]))
+
+            elif DF["High"][i] >= n:
+                ticker_signal=""
+                if DF["Open"][i] <=n:
+                    ticker_return.append((DF["Close"][i-1]/n)-1)
+                    ticker_units.append(a-n)
+                    ticker_call.append("sell_buy"+str(n))
+                    loose=loose+1
+                elif DF["Open"][i] <=DF["High"][i-1]:
+                    ticker_return.append(((n)/DF["Close"][i-1])-1)
+                    ticker_units.append(a-n)
+                    ticker_call.append("Buy_Sell at stoploss" + str(n))
+                    loose=loose+1
+                elif DF["Open"][i] > DF["High"][i-1]:
+                    ticker_return.append(((n)/DF["Close"][i-1])-1)
+                    ticker_units.append((a-DF["Open"][i]))
+                    ticker_call.append("Buy_Sell at stoploss" + str(DF["Open"][i]))
+                    loose=loose+1
+                else:
+                    ticker_return.append(((n)/DF["Close"][i-1])-1)
+                    ticker_units.append((a-DF["High"][i]))
+                    ticker_call.append("Buy_Sell at stoploss" + str(DF["High"][i]))
+                    loose=loose+1
+            elif DF["High"][i] >= DF["SPH"][i-1]:
+                ticker_signal=""
+                if(DF["Open"][i] > DF["SPH"][i-1]):
+                    ticker_return.append((DF["Close"][i-1]/DF["SPH"][i-1])  -1)
+                    ticker_units.append(a-DF["Open"][i])
+                    ticker_call.append("sell_buy"+str(DF["Open"][i]))
+                    if(DF["Open"][i] <a):
+                                win=win+1
+                    else:
+                                loose=loose+1
+                elif (DF["Open"][i] < DF["SPH"][i-1]) :
+                    ticker_return.append((DF["Close"][i-1]/DF["Open"][i])  -1)
+                    ticker_units.append(a-DF["SPH"][i-1])
+                    ticker_call.append("sell_buy"+str(DF["SPH"][i-1]))
+                    if(DF["SPH"][i-1] <a):
+                                    win=win+1
+                    else:
+                                    loose=loose+1
+                else:
+                    ticker_return.append(((n)/DF["Close"][i-1])-1)
+                    ticker_units.append((a-DF["High"][i]))
+                    ticker_call.append("Buy_Sell at stoploss" + str(DF["High"][i]))
+                    loose=loose+1
+            elif (DF["High"][i] > DF["SPH"][i-1]) and (DF["SPH"][i-1]> DF["LPL"][i-1]):# or DF["High"][i] > (DF["SPH"][i] > DF["LPL"][i]) )(DF["High"][i] > DF["LPH"][i-1])::
+                ticker_signal ="Buy"
+                trade=trade+1
+                ticker_return.append((DF["Close"][i-1]/DF["Close"][i])-1)
+                ticker_units.append(a-DF["SPH"][i-1])
+                ticker_call.append("sell_buy special"+str(DF["LPH"][i-1]))
+                if(a >DF["SPH"][i-1]):
+                    win=win+1
+                else:
+                    loose=loose+1
+            else:
+                ticker_return.append((DF["Close"][i-1]/DF["Close"][i])-1)
+                ticker_units.append(0)
+                ticker_call.append("no call")
+        i=i+1
+#print(ticker_return)
+
+DF["ret"]= np.array(ticker_return)
+DF["units"]= np.array(ticker_units)
+DF["signal"]= np.array(ticker_call)
+DF["cum_return"] = DF["units"].cumsum()
+print(DF)
+print((win)/(win+loose))
+print(win+loose)
+ssum=0
+for i in range(len(DF)):
+    ssum=ssum+DF['units'][i]
+print(ssum)
+maximum_dd=max_dd(DF)
+trades=win+loose
+win_ratio = (win/(win+loose))
+a=[ssum,trades,win,loose,win_ratio,maximum_dd,stoploss*100]
+outcome = pd.Series(a, index = ["Total Unit Gain", "Total Trades", "Win Trades","Loose Trades","Win Ratio","Max_Drawdown","Stoploss %"])
+fig = px.line(DF, x="DateTime", y="cum_return", title='Return_Curve')
+image_data = BytesIO(fig.to_image(format="png"))
+writer = pd.ExcelWriter('Startergy_Output.xlsx', engine='xlsxwriter')
+outcome.to_excel(writer, sheet_name='Sheet1')
+workbook  = writer.book
+worksheet = writer.sheets['Sheet1']
+worksheet = workbook.add_worksheet()
+worksheet.insert_image(2, 3, 'plotly.png', {'image_data': image_data})
+writer.save()
+
+#writer = ExcelWriter("Startergy_Output.xlsx")
+#outcome.to_excel("Startergy_Output.xlsx",)
+#outcome.to_excel(writer,'Sheet1')
+#writer.save()
+'''
+fig = go.Figure(data=[go.Candlestick(x=data["DateTime"],open = data["Open"],high=data["High"],low=data["Low"],close =data["Close"])])
+fig.update_xaxes(
+        rangeslider_visible=False,
+        rangebreaks=[
+            # NOTE: Below values are bound (not single values), ie. hide x to y
+            dict(bounds=["sat", "mon"]),  # hide weekends, eg. hide sat to before mon
+            dict(bounds=[16, 9.5], pattern="hour"),  # hide hours outside of 9.30am-4pm
+            # dict(values=["2020-12-25", "2021-01-01"])  # hide holidays (Christmas and New Year's, etc)
+        ]
+    )
+
+fig.add_trace(
+    go.Scatter(
+        x=DF["DateTime"],
+        y=DF["LPH"],
+        line=dict(color = "#e0e0e0"),
+        name="LPH"
+    )
+)
+fig.add_trace(
+    go.Scatter(
+        x=DF["DateTime"],
+        y=DF["LPL"],
+        line=dict(color = "red"),
+        name="LPH"
+    )
+)
+
+fig.add_scatter(y=SPH,x=SPHDate, mode="markers",
+                marker=dict(size=7, color="LightSeaGreen"),
+                name="SPH")
+fig.add_scatter(y=SPL,x=SPLDate, mode="markers",
+                marker=dict(size=7, color="MediumPurple"),
+                name="SPL")
+
+fig.add_scatter(y=LPH,x=LPHDate, mode="markers",
+                marker=dict(size=7, color="red"),
+                name="LPH")
+fig.add_scatter(y=LPL,x=LPLDate, mode="markers",
+                marker=dict(size=7, color="#e0e0e0"),
+                name="LPL")
+
+fig.update_layout(xaxis_rangeslider_visible=False,template="plotly_dark")
+fig.show()
+'''
